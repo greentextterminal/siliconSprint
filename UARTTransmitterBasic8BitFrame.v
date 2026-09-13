@@ -20,7 +20,7 @@ module top(
     input  rst_n,         // assume the reset is synchronous (reset is active high despite _n in name)
     input  tx_start,
     input  [7:0] data_in,
-    output tx,
+    output tx,            // assume this is the bit output of captured data from data_in
     output tx_done
 );
     // wires
@@ -30,6 +30,7 @@ module top(
     reg [1:0] current state;
     reg [7:0] shift_reg;
     reg [7:0] count;
+    reg       data_bit;
 
     // localparams
     localparam [1:0] IDLE,
@@ -75,24 +76,37 @@ module top(
         endcase
     end
     
-    // creating the 8 bit data counter
+    // creating the 8 clock cycle counter and handling the shift register logic
     always @ (posedge clk) begin
         // reset condition
         if (rst_n) begin
-            count <= 8'b0;
+            count     <= 0;
+            shift_reg <= 0;
+            data_bit  <= 0;
         end
-        
+        // reset the count if 8 clock cycles passed
+        else if (count == (DATA_LENGTH - 1)) begin
+            count     <= 0;
+            shift_reg <= 0;
+            data_bit  <= 0;
+        end
         // enable if the next_state is DATA (to begin capturing the data as state transitions fro START to DATA)
         else if (next_state == DATA) begin
             count <= count + 1;
+            // capturing data into shift register (using the count as in index into data_in)
+            shift_reg <= {data_in[count], shift_reg[7:1]}; 
+            // loading the data bit register to output the captured bit
+            data_bit <= data_in[count];
         end
         else begin
-            count <= 8'b0;
+            count     <= 0;
+            shift_reg <= 0;
+            data_bit  <= 0;
         end
     end
 
     // driving outputs
     assign tx_done = (STATE == STOP) ? 1 : 0;
-    assign tx =
+    assign tx      = data_bit;
   
 endmodule
