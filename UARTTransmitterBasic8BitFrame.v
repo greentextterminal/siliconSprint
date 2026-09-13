@@ -27,18 +27,19 @@ module top(
 
     // regs
     reg [1:0] next_state;
-    reg [1:0] current state;
+    reg [1:0] current_state;
     reg [7:0] shift_reg;
     reg [7:0] count;
     reg       data_bit;
 
     // localparams
-    localparam [1:0] IDLE,
-                     START,
-                     DATA,
-                     STOP;
-    
-    localparam DATA_LENGTH = 8;
+    localparam [1:0] IDLE  = 2'd0,
+                     START = 2'd1,
+                     DATA  = 2'd2,
+                     STOP  = 2'd3;
+
+    // compile time constatnt
+    localparam integer DATA_LENGTH = 8;
 
     // current_state transition logic
     always @ (posedge clk) begin
@@ -65,10 +66,18 @@ module top(
                 next_state = DATA;
             end
             DATA: begin
-                if 
+                if (count == (DATA_LENGTH - 1)) begin
+                    next_state = STOP;
+                end
             end
             STOP: begin
-
+                // move into new by state in next clock cycle
+                if (tx_start) begin
+                    next_state = START;
+                end
+                else begin
+                    next_state = IDLE;
+                end
             end
             default: begin
                 next_state = IDLE;
@@ -106,7 +115,7 @@ module top(
     end
 
     // driving outputs
-    assign tx_done = (STATE == STOP) ? 1 : 0;
+    assign tx_done = (current_state == STOP) ? 1 : 0;
     assign tx      = data_bit;
   
 endmodule
