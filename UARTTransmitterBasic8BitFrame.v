@@ -29,7 +29,7 @@ module top(
     // regs
     reg [1:0] next_state;
     reg [1:0] current_state;
-    reg [7:0] count;
+    reg [2:0] count;      // holds count 0 to 7
     reg [9:0] uart_frame; // 10 bits of the data frame [stop_bit, data_in, start_bit]
     reg       registered_done;
 
@@ -39,8 +39,8 @@ module top(
                      DATA  = 2'd2,
                      STOP  = 2'd3;
 
-    // compile time constatnt
-    localparam integer CLOCK_CYCLE_COUNT = 8;
+    // compile time constatnt (clock cycle counts 8, but - 1 to account for starting from 0)
+    localparam CLOCK_CYCLE_COUNT = 7;
 
     // current_state transition logic
     always @ (posedge clk) begin
@@ -58,7 +58,7 @@ module top(
         next_state = IDLE;
         case (current_state) 
             IDLE: begin
-                if (tx_start) begin
+                if (~tx_start) begin
                     next_state = START;
                 end
             end
@@ -74,7 +74,7 @@ module top(
             end
             STOP: begin
                 // move into new by state in next clock cycle
-                if (tx_start) begin
+                if (~tx_start) begin
                     next_state = DATA;
                 end
                 else begin
@@ -91,30 +91,30 @@ module top(
     always @ (posedge clk) begin
         // reset condition
         if (rst_n) begin
-            count <= 0;
+            count <= 3'b0;
         end
         // reset the count if 8 clock cycles passed
         else if (counter_hit) begin
-            count <= 0;
+            count <= 3'b0;
         end
         // enable if the next_state is DATA
         else if (next_state == DATA) begin
             // increment the counter
-            count <= count + 1;
+            count <= count + 1'b1;
         end
         else begin
-            count <= 0;
+            count <= 3'b0;
         end
     end
 
     // creating the shift register for the UART data frame
     always @ (posedge clk) begin
         if (rst_n) begin
-            uart_frame <= 0;
+            uart_frame <= 10'b0;
         end
-        // START: tx_start
+        // START: start bit is 0
         else if (next_state == START) begin
-            uart_frame <= {tx_start, uart_frame[9:1]};
+            uart_frame <= {1'b0, uart_frame[9:1]};
         end
         // DATA: data_in
         else if (next_state == DATA) begin
@@ -122,25 +122,25 @@ module top(
         end
         // STOP: stop bit is 1
         else if (next_state == STOP) begin
-            uart_frame <= {1, uart_frame[9:1]};
+            uart_frame <= {1'b1, uart_frame[9:1]};
         end
     end
 
-    // registering the done flag output (asserted for 1 clock cycle and same cycle  h e
+    // registering the done flag output (asserted for 1 clock cycle and same cycle as STOP)
     always @ (posedge clk) begin
         if (rst_n) begin
-            registered_done <= 0;
+            registered_done <= 1'b0;
         end
         else if (next_state == STOP) begin
-            registered_done <= 1;
+            registered_done <= 1'b1;
         end
         else begin
-            registered_done <= 0;
+            registered_done <= 1'b0;
         end
     end
 
     // counter hits 8 clock cycles
-    assign counter_hit = (count == (CLOCK_CYCLE_COUNT - 1)) ? 1 : 0;
+    assign counter_hit = (count == CLOCK_CYCLE_COUNT) ? 1'b1 : 1'b0;
 
     // driving output
     assign tx_done = registered_done;
