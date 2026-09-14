@@ -20,17 +20,18 @@ module top(
     input  rst_n,         // assume the reset is synchronous (reset is active high despite _n in name)
     input  tx_start,
     input  [7:0] data_in,
-    output tx,            // assume this is the bit output of captured data from data_in
-    output tx_done
+    output tx,            // this is the bit output of the data frame: {stop_bit, data_in, start_bit}
+    output tx_done        // done flag
 );
     // wires
+    wire counter_hit; // if counter hits target val
 
     // regs
     reg [1:0] next_state;
     reg [1:0] current_state;
-    reg [7:0] shift_reg;
+    reg [7:0] shift_reg;     // 8 bits of data_in
     reg [7:0] count;
-    reg       data_bit;
+    reg       uart_frame;
 
     // localparams
     localparam [1:0] IDLE  = 2'd0,
@@ -39,7 +40,7 @@ module top(
                      STOP  = 2'd3;
 
     // compile time constatnt
-    localparam integer DATA_LENGTH = 8;
+    localparam integer CLOCK_CYCLE_COUNT = 8;
 
     // current_state transition logic
     always @ (posedge clk) begin
@@ -66,14 +67,15 @@ module top(
                 next_state = DATA;
             end
             DATA: begin
-                if (count == (DATA_LENGTH - 1)) begin
+                // move to STOP state once counter counts 8 clock cycles
+                if (counter_hit) begin
                     next_state = STOP;
                 end
             end
             STOP: begin
                 // move into new by state in next clock cycle
                 if (tx_start) begin
-                    next_state = START;
+                    next_state = DATA;
                 end
                 else begin
                     next_state = IDLE;
@@ -85,37 +87,48 @@ module top(
         endcase
     end
     
-    // creating the 8 clock cycle counter and handling the shift register logic
+    // creating the 8 clock cycle counter
     always @ (posedge clk) begin
         // reset condition
         if (rst_n) begin
-            count     <= 0;
-            shift_reg <= 0;
-            data_bit  <= 0;
+            count <= 0;
         end
         // reset the count if 8 clock cycles passed
-        else if (count == (DATA_LENGTH - 1)) begin
-            count     <= 0;
-            shift_reg <= 0;
-            data_bit  <= 0;
+        else if (counter_hit) begin
+            count <= 0;
         end
         // enable if the next_state is DATA (to begin capturing the data as state transitions fro START to DATA)
         else if (next_state == DATA) begin
+            // increment the counter
             count <= count + 1;
-            // capturing data into shift register (using the count as in index into data_in)
-            shift_reg <= {data_in[count], shift_reg[7:1]}; 
-            // loading the data bit register to output the captured bit
-            data_bit <= data_in[count];
         end
         else begin
-            count     <= 0;
-            shift_reg <= 0;
-            data_bit  <= 0;
+            count <= 0;
         end
     end
 
-    // driving outputs
+    // driving the UART frame based on the current state
+    always @ (*) begin
+        if (current_state == START) begin
+            uart_frame = tx_start;
+        end
+        else if (current_state == DATA) begin
+            uart_frame = data_in[count];
+        end
+        else if (current_state == STOP) begin
+            uart_frame = 1;
+        end
+        // default
+        else begin
+            uart_frame = 0;
+        end
+    end
+
+    // counter hits 8 clock cycles
+    assign counter_hit = (count == (CLOCK_CYCLE_COUNT - 1)) ? 1 : 0;
+
+    // driving output
     assign tx_done = (current_state == STOP) ? 1 : 0;
-    assign tx      = data_bit;
+    assign tx      = uart_frame;
   
 endmodule
