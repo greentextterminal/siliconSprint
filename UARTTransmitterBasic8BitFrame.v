@@ -24,14 +24,14 @@ module top(
     output tx_done        // done flag
 );
     // wires
-    wire counter_hit; // if counter hits target val
+    wire counter_hit;     // if counter hits target val
 
     // regs
     reg [1:0] next_state;
     reg [1:0] current_state;
-    reg [7:0] shift_reg;     // 8 bits of data_in
     reg [7:0] count;
-    reg       uart_frame;
+    reg [9:0] uart_frame; // 10 bits of the data frame [stop_bit, data_in, start_bit]
+    reg       registered_done;
 
     // localparams
     localparam [1:0] IDLE  = 2'd0,
@@ -97,7 +97,7 @@ module top(
         else if (counter_hit) begin
             count <= 0;
         end
-        // enable if the next_state is DATA (to begin capturing the data as state transitions fro START to DATA)
+        // enable if the next_state is DATA
         else if (next_state == DATA) begin
             // increment the counter
             count <= count + 1;
@@ -107,20 +107,35 @@ module top(
         end
     end
 
-    // driving the UART frame based on the current state
-    always @ (*) begin
-        if (current_state == START) begin
-            uart_frame = tx_start;
+    // creating the shift register for the UART data frame
+    always @ (posedge clk) begin
+        if (rst_n) begin
+            uart_frame <= 0;
         end
-        else if (current_state == DATA) begin
-            uart_frame = data_in[count];
+        // START: tx_start
+        else if (next_state == START) begin
+            uart_frame <= {tx_start, uart_frame[9:1]};
         end
-        else if (current_state == STOP) begin
-            uart_frame = 1;
+        // DATA: data_in
+        else if (next_state == DATA) begin
+            uart_frame <= {data_in[count], uart_frame[9:1]};
         end
-        // default
+        // STOP: stop bit is 1
+        else if (next_state == STOP) begin
+            uart_frame <= {1, uart_frame[9:1]};
+        end
+    end
+
+    // registering the done flag output (asserted for 1 clock cycle and same cycle  h e
+    always @ (posedge clk) begin
+        if (rst_n) begin
+            registered_done <= 0;
+        end
+        else if (next_state == STOP) begin
+            registered_done <= 1;
+        end
         else begin
-            uart_frame = 0;
+            registered_done <= 0;
         end
     end
 
@@ -128,7 +143,8 @@ module top(
     assign counter_hit = (count == (CLOCK_CYCLE_COUNT - 1)) ? 1 : 0;
 
     // driving output
-    assign tx_done = (current_state == STOP) ? 1 : 0;
-    assign tx      = uart_frame;
+    assign tx_done = registered_done;
+    // use the MSB of the UART frame since it will contain the latest bit of the frame
+    assign tx      = uart_frame[9];
   
 endmodule
