@@ -27,7 +27,7 @@ module top(
     reg [1:0] next_state;
     reg [1:0] current_state;
     reg [2:0] bit_count;      // holds count 0 to 7
-    reg [9:0] uart_frame; // 10 bits of the data frame [stop_bit, data_in, start_bit]
+    reg [9:0] shift_reg; // 10 bits of the data frame [stop_bit, data_in, start_bit]
     reg       registered_done;
 
     // localparams
@@ -113,23 +113,23 @@ module top(
     // creating the shift register for the UART data frame
     always @ (posedge clk) begin
         if (rst_n) begin
-            uart_frame <= 10'b0;
+            shift_reg <= 10'b0;
         end
         // START: start bit is 0
         else if (next_state == START) begin
-            uart_frame <= {1'b0, uart_frame[9:1]};
+            shift_reg <= {1'b0, shift_reg[9:1]};
         end
         // DATA: data_in
         else if (next_state == DATA) begin
-            uart_frame <= {data_in[bit_count], uart_frame[9:1]};
+            shift_reg <= {data_in[bit_count], shift_reg[9:1]};
         end
         // STOP: stop bit is 1
         else if (next_state == STOP) begin
-            uart_frame <= {1'b1, uart_frame[9:1]};
+            shift_reg <= {1'b1, shift_reg[9:1]};
         end
         // hold the current frame
         else begin
-            uart_frame <= uart_frame;
+            shift_reg <= shift_reg;
         end
     end
 
@@ -149,6 +149,6 @@ module top(
     // driving output
     assign tx_done = registered_done;
     // use the MSB of the UART frame since it will contain the latest bit of the frame
-    assign tx      = uart_frame[9];
+    assign tx      = shift_reg[9];
   
 endmodule
