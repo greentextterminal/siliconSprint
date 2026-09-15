@@ -26,15 +26,15 @@ module top(
     // regs
     reg [1:0] next_state;
     reg [1:0] current_state;
-    reg [2:0] bit_count;      // holds count 0 to 7
-    reg [9:0] shift_reg; // 10 bits of the data frame [stop_bit, data_in, start_bit]
-    reg       registered_done;
+    reg [2:0] bit_count;       // holds count 0 to 7
+    reg [7:0] shift_reg;       // 8 bit shift register
+    reg       tx_reg;          // creating reg to prodedurally drive tx output
 
     // localparams
-    localparam [1:0] IDLE  = 2'd0,
-                     START = 2'd1,
-                     DATA  = 2'd2,
-                     STOP  = 2'd3;
+    localparam [1:0] IDLE       = 2'd0,
+                     SEND_START = 2'd1,
+                     SEND_DATA  = 2'd2,
+                     SEND_STOP  = 2'd3;
 
     // compile time constatnt (clock cycle counts 8, but - 1 to account for starting from 0)
     localparam CLOCK_CYCLE_COUNT = 3'd7;
@@ -56,27 +56,27 @@ module top(
         case (current_state) 
             IDLE: begin
                 if (~tx_start) begin
-                    next_state = START;
+                    next_state = SEND_START;
                 end
             end
-            START: begin
+            SEND_START: begin
                 // transition to DATA state by next clock cycle
-                next_state = DATA;
+                next_state = SEND_DATA;
             end
-            DATA: begin
+            SEND_DATA: begin
                 // move to STOP state once counter counts 8 clock cycles
                 if (bit_count == CLOCK_CYCLE_COUNT) begin
-                    next_state = STOP;
+                    next_state = SEND_STOP;
                 end
                 // stay in DATA state until counter hits
                 else begin
-                    next_state = DATA;
+                    next_state = SEND_DATA;
                 end
             end
-            STOP: begin
+            SEND_STOP: begin
                 // move into new by state in next clock cycle
                 if (~tx_start) begin
-                    next_state = DATA;
+                    next_state = SEND_DATA;
                 end
                 else begin
                     next_state = IDLE;
@@ -94,7 +94,7 @@ module top(
         if (rst_n) begin
             bit_count <= 3'b0;
         end
-        else if (current_state == DATA) begin
+        else if (current_state == SEND_DATA) begin
             // reset the count if 8 clock cycles passed (count == 7)
             if (bit_count == CLOCK_CYCLE_COUNT) begin
                 bit_count <= 3'b0;
@@ -113,18 +113,29 @@ module top(
     // creating the shift register for the UART data frame
     always @ (posedge clk) begin
         if (rst_n) begin
-            shift_reg <= 10'b0;
+            shift_reg <= 0;
+        end
+        // IDLE
+        else if (current_state == IDLE) begin
+            if (tx_start) begin
+                shift_reg <= data_in;
+            end
+            // if ~tx_start
+            else begin
+                shift_reg <= {1'b0, shift_reg[7:1]};
+            end
         end
         // START: start bit is 0
-        else if (next_state == START) begin
-            shift_reg <= {1'b0, shift_reg[9:1]};
+        else if ((current_state == SEND_START) & tx_start) begin
+            shift_reg <= data_in;
         end
+        //!!!!!!
         // DATA: data_in
-        else if (next_state == DATA) begin
+        else if (next_state == SEND_DATA) begin
             shift_reg <= {data_in[bit_count], shift_reg[9:1]};
         end
         // STOP: stop bit is 1
-        else if (next_state == STOP) begin
+        else if (next_state == SEND_STOP) begin
             shift_reg <= {1'b1, shift_reg[9:1]};
         end
         // hold the current frame
@@ -133,22 +144,32 @@ module top(
         end
     end
 
-    // registering the done flag output (asserted for 1 clock cycle and same cycle as STOP)
-    always @ (posedge clk) begin
-        if (rst_n) begin
-            registered_done <= 1'b0;
-        end
-        else if (next_state == STOP) begin
-            registered_done <= 1'b1;
-        end
-        else begin
-            registered_done <= 1'b0;
-        end
-    end
-
     // driving output
-    assign tx_done = registered_done;
-    // use the MSB of the UART frame since it will contain the latest bit of the frame
-    assign tx      = shift_reg[9];
+    assign tx_done = (current_state == SEND_STOP);
+
+    // driving tx output
+    always @ (*) begin
+        // catch all "else" to prevent latches
+        tx_reg = 1'b0;
+        case (current_state)
+            IDLE: begin
+                tx_reg = 1'b1;
+            end
+            SEND_START: begin
+                tx_reg = 1'b0;
+            end
+            SEND_DATA: begin
+                tx_reg = shift_reg[0];
+            end
+            SEND_STOP: begin
+                tx_reg = 1'b1;
+            end
+            default: begin
+                tx_reg = 1'b0;
+            end
+        endcase
+    end
+    // driving tx with 
+    assign tx = tx_reg;
   
 endmodule
