@@ -23,9 +23,6 @@ module top(
     output tx,            // this is the bit output of the data frame: {stop_bit, data_in, start_bit}
     output tx_done        // done flag
 );
-    // wires
-    wire counter_hit;     // if counter hits target val
-
     // regs
     reg [1:0] next_state;
     reg [1:0] current_state;
@@ -40,7 +37,7 @@ module top(
                      STOP  = 2'd3;
 
     // compile time constatnt (clock cycle counts 8, but - 1 to account for starting from 0)
-    localparam CLOCK_CYCLE_COUNT = 7;
+    localparam CLOCK_CYCLE_COUNT = 3'd7;
 
     // current_state transition logic
     always @ (posedge clk) begin
@@ -68,8 +65,12 @@ module top(
             end
             DATA: begin
                 // move to STOP state once counter counts 8 clock cycles
-                if (counter_hit) begin
+                if (count == CLOCK_CYCLE_COUNT) begin
                     next_state = STOP;
+                end
+                // stay in DATA state until counter hits
+                else begin
+                    next_state = DATA;
                 end
             end
             STOP: begin
@@ -93,15 +94,17 @@ module top(
         if (rst_n) begin
             count <= 3'b0;
         end
-        // reset the count if 8 clock cycles passed
-        else if (counter_hit) begin
-            count <= 3'b0;
-        end
-        // enable if the next_state is DATA
-        else if (next_state == DATA) begin
+        else if (current_state == DATA) begin
+            // reset the count if 8 clock cycles passed (count == 7)
+            if (count == CLOCK_CYCLE_COUNT) begin
+                count <= 3'b0;
+            end
             // increment the counter
-            count <= count + 1'b1;
+            else begin
+                count <= count + 1'b1;
+            end
         end
+        // clear the count once outside of DATA state
         else begin
             count <= 3'b0;
         end
@@ -124,6 +127,10 @@ module top(
         else if (next_state == STOP) begin
             uart_frame <= {1'b1, uart_frame[9:1]};
         end
+        // hold the current frame
+        else begin
+            uart_frame <= uart_frame;
+        end
     end
 
     // registering the done flag output (asserted for 1 clock cycle and same cycle as STOP)
@@ -138,9 +145,6 @@ module top(
             registered_done <= 1'b0;
         end
     end
-
-    // counter hits 8 clock cycles
-    assign counter_hit = (count == CLOCK_CYCLE_COUNT) ? 1'b1 : 1'b0;
 
     // driving output
     assign tx_done = registered_done;
