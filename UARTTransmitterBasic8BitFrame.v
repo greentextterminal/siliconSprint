@@ -26,7 +26,7 @@ module top(
     // regs
     reg [1:0] next_state;
     reg [1:0] current_state;
-    reg [2:0] count;      // holds count 0 to 7
+    reg [2:0] bit_count;      // holds count 0 to 7
     reg [9:0] uart_frame; // 10 bits of the data frame [stop_bit, data_in, start_bit]
     reg       registered_done;
 
@@ -65,7 +65,7 @@ module top(
             end
             DATA: begin
                 // move to STOP state once counter counts 8 clock cycles
-                if (count == CLOCK_CYCLE_COUNT) begin
+                if (bit_count == CLOCK_CYCLE_COUNT) begin
                     next_state = STOP;
                 end
                 // stay in DATA state until counter hits
@@ -92,21 +92,21 @@ module top(
     always @ (posedge clk) begin
         // reset condition
         if (rst_n) begin
-            count <= 3'b0;
+            bit_count <= 3'b0;
         end
         else if (current_state == DATA) begin
             // reset the count if 8 clock cycles passed (count == 7)
-            if (count == CLOCK_CYCLE_COUNT) begin
-                count <= 3'b0;
+            if (bit_count == CLOCK_CYCLE_COUNT) begin
+                bit_count <= 3'b0;
             end
             // increment the counter
             else begin
-                count <= count + 1'b1;
+                bit_count <= bit_count + 1'b1;
             end
         end
         // clear the count once outside of DATA state
         else begin
-            count <= 3'b0;
+            bit_count <= 3'b0;
         end
     end
 
@@ -121,7 +121,7 @@ module top(
         end
         // DATA: data_in
         else if (next_state == DATA) begin
-            uart_frame <= {data_in[count], uart_frame[9:1]};
+            uart_frame <= {data_in[bit_count], uart_frame[9:1]};
         end
         // STOP: stop bit is 1
         else if (next_state == STOP) begin
